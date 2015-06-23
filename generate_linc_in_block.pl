@@ -122,6 +122,8 @@ print $OUT_params "count_cutoff:\t$count_cutoff\n";
 close $OUT_params;
 
 open (my $OUT_linc, ">", join('/', $outdir, "lincs")) || die "" if (! $no_output_linc);
+open (my $OUT_all_items, ">", join('/', $outdir, "all_items")) || die "";
+open (my $OUT_WGD_pairs, ">", join('/', $outdir, "WGD_pairs")) || die "";
 
 
 #############################################################################
@@ -145,6 +147,8 @@ while (my $linc_gff_file = shift @linc_gff_files){
 
 *paired_WGD_block_rela = &get_paired_WGD_block(\%block);
 print "num of relationships\t" . scalar (keys %paired_WGD_block_rela) . "\n";
+output_WGD_pairs(\%paired_WGD_block_rela, $OUT_WGD_pairs);
+
 
 #### disabled pass ####
 *block_info = &generate_block_range(\%block, \%gene_info);
@@ -217,6 +221,12 @@ foreach my $block_name (sort keys %block_info){
 		@{$sorted_block_paired[$block_num]} = 
 			sort {$seq_within_block{$a}{pos1} <=> $seq_within_block{$b}{pos1}} keys %hash;
 			
+        print $OUT_all_items "***\t$block_name\t$block_num\n";
+        foreach (@{$sorted_block_paired[$block_num]}){
+            print $OUT_all_items $_."\n";
+            #print "===\n" if $block_num == 2;
+        }
+
 		# only lincs and genes with WGD pairs will be put in @{$sorted_block_paired[$block_num]}
 		# for (keys %hash){print $_."\n"}# if exists $seq_within_block{$_}{pos1}}
 
@@ -578,6 +588,16 @@ sub print_num_within_block{
 }
 
 
+sub output_WGD_pairs{
+    my ($paired_WGD_block_rela_href, $OUT_WGD_pairs) = @_;
+    foreach my $key (keys %$paired_WGD_block_rela_href){
+        my @a = keys(%{$paired_WGD_block_rela{$key}});
+        print $OUT_WGD_pairs $key."\t".$a[0]."\n";
+    }
+    close $OUT_WGD_pairs;
+}
+
+
 ##################################################################################
 sub read_linc_gff_file{
     # strand is not considered here
@@ -653,8 +673,14 @@ sub read_linc_blast_output
 		chomp;
 		my ($seq1, $seq2, $identity, $aln_length, $e_value) = (split /\t/)[0,1,2,3,10];
 		next if $seq1 eq $seq2;
-		if ($e_value > $e_value_threshold){
-            next if $identity < $identity_threshold or $aln_length < $aln_length_threshold;
+        ### ------------------------------------------------- ###
+        if ($e_value > 1e-10){
+		    if ($e_value <= $e_value_threshold){
+                next if $identity < $identity_threshold or $aln_length < $aln_length_threshold;
+            }
+            else{
+                next;
+            }
         }
 		my $pair_name = join ("-", sort ($seq1, $seq2));
 		$pair{$pair_name}{e_value} = $e_value if (not exists $pair{$pair_name} or $pair{$pair_name}{e_value} > $e_value);
@@ -742,6 +768,8 @@ sub mean{
 	return (sum (@_)/@_);
 }
 
+
+
 #############################################################################
 # finalize associating
 sub mean_property{
@@ -783,6 +811,8 @@ sub output_adhore
 }
 
 
+
+
 ################################################################################
 #          *************************** ·ÏÎï **************************         #
 ################################################################################
@@ -807,11 +837,13 @@ sub get_WGD_block_Bowers_2004{
 	return(\%block_locus);
 }
 
+
 sub USAGE{
 	print "USAGE:\tperl $0 ";
 	print "<genome_gff=\$genome_gff_file> <linc_gff=\$lin_gff_file> <WGD_block_file=\$WGD_block_file> [linc_blast_output=\$linc_blast_output] \n\n";
 	exit();
 }
+
 
 #############################################################################
 =cut
