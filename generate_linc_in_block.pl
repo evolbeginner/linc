@@ -42,6 +42,8 @@ my ($blast_chr_bias_href, $blast_chr_Q_bias, $blast_chr_S_bias, $outdir, $force,
 
 
 ### ---------------------------------------------- ###
+$numOfGenesInBlockCutoff = 0;
+
 $regular_type = 'Bowers';
 $linc_blast_output = "../blast/liu_linc_blast_output";
 $blast_chr_Q_bias=undef;
@@ -51,7 +53,7 @@ $linc_blast_e_value_threshold = 1e-5;
 $linc_blast_identity_threshold= 80;
 $linc_blast_aln_length_threshold= 40;
 
-$linc_regexp = '^At\d+NC|lincRNA';
+$linc_regexp = 'At\d+NC|lincRNA|XLOC_|lncRNA';
 ### ---------------------------------------------- ###
 
 
@@ -62,6 +64,7 @@ GetOptions(
 	'linc_blast_output=s'	=>	\$linc_blast_output,
 	'block_pair_type=s'	    =>	\$block_pair_type,
     'regular_type=s'        =>  \$regular_type,
+    'numOfGenesInBlockMin=s'=>  \$numOfGenesInBlockCutoff,
 	'extend_gene_width=s'	=>	\$extend_gene_width,
 	'count_cutoff=s'	    =>	\$count_cutoff,
 	'A01=s'			        =>	\$A01_fast,
@@ -111,6 +114,7 @@ if (-e $outdir){
 }
 `mkdir -p $outdir`;
 
+
 open(my $OUT_params, '>', join('/', $outdir, "params")) || die;
 open(my $OUT_printing_pairs, '>', join('/', $outdir, "pairs")) || die;
 print $OUT_params "block_detailed_step:\t$block_detailed_step\n";
@@ -119,6 +123,7 @@ print $OUT_params "identity:\t$linc_blast_identity_threshold\n";
 print $OUT_params "aln_length:\t$linc_blast_aln_length_threshold\n";
 print $OUT_params "extend_gene_width:\t$extend_gene_width\n";
 print $OUT_params "count_cutoff:\t$count_cutoff\n";
+print $OUT_params "numOfGenesInBlockMin:\t$numOfGenesInBlockMin\n";
 close $OUT_params;
 
 open (my $OUT_linc, ">", join('/', $outdir, "lincs")) || die "" if (! $no_output_linc);
@@ -132,7 +137,6 @@ while(my $genome_gff_file = shift @genome_gff_files){
 	(*posi, *gene_info) = &read_genome_gff_file($genome_gff_file, 'gene', \%gene_info);
 }
 
-print "Num of genes is\t" . scalar (keys %gene_info)."\n";
 
 while (my $linc_gff_file = shift @linc_gff_files){
     *linc_info = &read_linc_gff_file($linc_gff_file);
@@ -155,6 +159,7 @@ output_WGD_pairs(\%paired_WGD_block_rela, $OUT_WGD_pairs);
 #&print_block_range(\%block_info);
 
 *block_detailed = &generate_detailed_block(\%block_info, $block_detailed_step, \%gene_info);
+print "\n";
 
 foreach (qw(gene linc)){
 	$hash_name = 'gene_info' if $_ eq 'gene';
@@ -228,7 +233,6 @@ foreach my $block_name (sort keys %block_info){
         }
 
 		# only lincs and genes with WGD pairs will be put in @{$sorted_block_paired[$block_num]}
-		# for (keys %hash){print $_."\n"}# if exists $seq_within_block{$_}{pos1}}
 
 		my @array = @{$sorted_block_paired[$block_num]};
 		for (0..$#array){
@@ -242,7 +246,8 @@ foreach my $block_name (sort keys %block_info){
 		$block_name_hashref3_2 = $block_name_hashref2->{linc};
 		
 		$block_range = $block_name_hashref2->{range}; 		# e.g. 2:1111-9999
-		($block_range_pure_num) = $block_range =~ /^\d+\:(.+)/; 	#e.g. 1111-9999
+		($block_range_pure_num) = $block_range =~ /\:(.+)/; 	#e.g. 1111-9999
+		#($block_range_pure_num) = $block_range =~ /^\d+\:(.+)/; 	#e.g. 1111-9999
 		($block_pos1,$block_pos2) = split /\-/,$block_range_pure_num;
 		$block_size = abs($block_pos1-$block_pos2+1);
 		$num_gene_within_block[$block_num] = scalar (keys %$block_name_hashref3_1);
@@ -281,7 +286,8 @@ foreach my $block_name (sort keys %block_info){
         @gene1 = @$gene1_arrayref;
 
         # -------------------------------------------------- #
-        next if $seq_name !~ /$linc_regexp/i;
+        #next if $seq_name !~ /$linc_regexp/i;
+        next if not exists $linc_info{$seq_name};
         # -------------------------------------------------- #
 
         if (exists $linc_paralog_rela{$seq_name}){
@@ -290,6 +296,7 @@ foreach my $block_name (sort keys %block_info){
             for my $paralog (keys %$element_hash){
                 my @paired_genes;
                 my ($count,$count2,%gene2);
+                $count = 0;
                 next if not exists $paired_seq_within_block[3-$block_num]{$paralog};
                 my $order2 = $a_order[3-$block_num]{$paralog}+1;
                 my ($gene2_hashref, $indexs_gene2_aref) = &extend_gene( $order2-$extend_gene_width, 
@@ -303,6 +310,7 @@ foreach my $block_name (sort keys %block_info){
                         if (exists $gene2{$WGD_paired_gene}){
                             ++$count;
                             push @paired_genes, join("\t", $gene, $WGD_paired_gene);
+                            last;
                         }
                     }
                 }
@@ -351,7 +359,8 @@ sub extend_gene{
         last if $counter2 >= $counter_limit;
         ++$counter;
         $a=$middle_point-$counter;
-        next if $arrayref1->[$a] =~ /$linc_regexp/i;
+        #next if $arrayref1->[$a] =~ /$linc_regexp/i;
+        next if exists $linc_info{$arrayref1->[$a]};
         my $neighbor_seq_name = $arrayref1->[$a];
         if ($type eq 'hash'){
                 $return_ref->{$neighbor_seq_name} = 1 if scalar keys %$return_hashref<$num_of_max;}
@@ -369,7 +378,8 @@ sub extend_gene{
         last if $counter2 >= $counter_limit;
         ++$counter;
         $a=$middle_point+$counter;
-        next if $arrayref1->[$a] =~ /$linc_regexp/i;
+        #next if $arrayref1->[$a] =~ /$linc_regexp/i;
+        next if exists $linc_info{$arrayref1->[$a]};
         my $neighbor_seq_name = $arrayref1->[$a];
         if ($type eq 'hash'){
                 $return_ref->{$neighbor_seq_name} = 1 if scalar keys %$return_hashref<$num_of_max;
@@ -383,11 +393,12 @@ sub extend_gene{
 }
 
 
+
 sub get_WGD_block{
 	my ($block_pair_type, $WGD_block_file, $filter_S, $regular_type) = @_;
 	given ($block_pair_type){
 		when($_ eq 'Bowers')	{(*block) = &get_WGD_block_Bowers_2003($WGD_block_file, $filter_S);}
-		when($_ eq 'regular')	{(*block) = &get_WGD_block_regular($WGD_block_file, $filter_S, $regular_type);}
+		when($_ eq 'regular')	{(*block) = &get_WGD_block_regular($WGD_block_file, $filter_S, $regular_type, $numOfGenesInBlockCutoff);}
 		default                 {die "Illegal para for block_pair_type has been given"}
 	}
 	return (\%block);
@@ -397,13 +408,19 @@ sub get_WGD_block{
 sub get_block_content
 {
     my ($gene_info_ref, $block_detailed_ref, $block_info_ref, $block_detailed_step, $type, $locus_in_block_ref) = @_;
+
+    print "Getting block content for $type ......\n";
     # type = 'gene' or 'linc'
     my %gene_info = %$gene_info_ref;
-    my $block_detailed = %$block_detailed_ref;
+    my %block_detailed = %$block_detailed_ref;
     my $block_info = %$block_info_ref;
     my $locus_in_block = %$locus_in_block_ref;
+    my $total = scalar keys (%gene_info);
+    my $counter = 0;
+    my $mei_fen = int($total/20);
 
     foreach my $gene_name (keys %gene_info){
+        print "." if ++$counter % $mei_fen == 0;
         my ($posi, $chr, $strat, $end, @start_array);
         $posi = $gene_info{$gene_name}{posi};
         # ($chr) = $gene_name =~ /^\D*(\d+)/;
@@ -413,96 +430,97 @@ sub get_block_content
 
         while (@start_array){
             my $new_start = shift @start_array;
-            my $start_hashref = $block_detailed[$chr];
+            my $start_hashref = $block_detailed{$chr};
             if (exists $start_hashref -> {$new_start}){
                 $linc_SuoShu_block_hashref = $start_hashref -> {$new_start};
                 for my $linc_SuoShu_block (keys %{$linc_SuoShu_block_hashref}){
                     #linc_SuoShu_block refers to the block that a lincRNA belongs to
                     #my $linc_SuoShu_block = $array_ref->{$new_start};
-                    $locus_in_block{$type}{$gene_name} = 1;
+                    $locus_in_block{$type}{$gene_name} = "";
                     ($block_name, $block_num) = $linc_SuoShu_block =~ /^(.+)\:(\d+)$/;
-                    $block_info{$block_name}[$block_num]{$type}{$gene_name}=1;
+                    $block_info{$block_name}[$block_num]{$type}{$gene_name} = "";
                 }
                 last;
             }
         }
     }
+    print "\n";
     return (\%block_info, \%locus_in_block);
 }
 
 
 sub generate_block_range
 {
-my ($block_ref, $gene_info_href) = @_;
-my %block = %$block_ref;
-my $block_printing_counter; # print_block_counter
+    my ($block_ref, $gene_info_href) = @_;
+    my %block = %$block_ref;
+    my $block_printing_counter; # print_block_counter
 
-my $num_of_keys_of_hash_block = scalar keys %block;
-print "Generating block range\n";
-#&print_dot($num_of_keys_of_hash_block);
+    my $num_of_keys_of_hash_block = scalar keys %block;
+    print "Generating block range\n";
+    #&print_dot($num_of_keys_of_hash_block);
 
-my $block_printing_countersh_href = &generate_printing_countersh($num_of_keys_of_hash_block);
+    my $block_printing_countersh_href = &generate_printing_countersh($num_of_keys_of_hash_block);
 
-iterate_block: foreach my $block_name (sort {$a<=>$b} keys %block){
-	if ($A01_fast){
-        next if $block_name !~ /^$A01_fast/;
-    }
-    $block_printing_counter++ ;
-	system "echo -ne '.'" if exists $block_printing_countersh_href->{$block_printing_counter};
-	my (@coordinate, %array2, @chr_num, @chr_num_tmp);
-	my $hash2_ref = $block{$block_name};
-	foreach $key2 (sort keys %$hash2_ref){
-		my $res = $hash2_ref->{$key2};
-		($gene1,$gene2) = split /[-]/,$res;
+    iterate_block: foreach my $block_name (sort {$a<=>$b} keys %block){
+        if ($A01_fast){
+            next if $block_name !~ /^$A01_fast/;
+        }
+        $block_printing_counter++ ;
+        system "echo -ne '.'" if exists $block_printing_countersh_href->{$block_printing_counter};
+        my (@coordinate, %array2, @chr_num, @chr_num_tmp);
+        my $hash2_ref = $block{$block_name};
+        foreach $key2 (sort keys %$hash2_ref){
+            my $res = $hash2_ref->{$key2};
+            ($gene1,$gene2) = split /[-]/,$res;
 
-        # e.g., Chr1 or chr1 -> 1
-        ($chr_num_tmp[1]) = $gene_info_href->{$gene1}{'chr'} if exists $gene_info_href->{$gene1};
-        ($chr_num_tmp[2]) = $gene_info_href->{$gene2}{'chr'} if exists $gene_info_href->{$gene2};
-		#($chr_num[1]) = $gene1 =~ /(\d+)/;
-		#($chr_num[2]) = $gene2 =~ /(\d+)/;
+            # e.g., Chr1 or chr1 -> 1
+            $chr_num_tmp[1] = $gene_info_href->{$gene1}{'chr'} if exists $gene_info_href->{$gene1};
+            $chr_num_tmp[2] = $gene_info_href->{$gene2}{'chr'} if exists $gene_info_href->{$gene2};
+            #($chr_num[1]) = $gene1 =~ /(\d+)/;
+            #($chr_num[2]) = $gene2 =~ /(\d+)/;
 
-        foreach (1..2){
-            if (not $chr_num[$_]){
-                $chr_num[$_] = $chr_num_tmp[$_];
+            foreach (1..2){
+                if (not $chr_num[$_]){
+                    $chr_num[$_] = $chr_num_tmp[$_];
+                }
+                else{
+                    if ($chr_num[$_] ne $chr_num_tmp[$_]){
+                        print "chr_num inconsistent in $block_name\t$_\n";
+                        next iterate_block;
+                    }
+                }
             }
-            else{
-                if ($chr_num[$_] ne $chr_num_tmp[$_]){
-                    print "chr_num inconsistent in $block_name\n";
-                    next iterate_block;
+
+            foreach my $key3(1..2){
+                foreach my $key4(1..2){
+                    #$coordinate[$key3][$key4] .= $posi{${'gene'.$key3}}{'pos'.$key4}." ";
+                    $coordinate[$key3][$key4] .= $gene_info{${'gene'.$key3}}{'pos'.$key4}." ";
                 }
             }
         }
 
-		foreach my $key3(1..2){
-			foreach my $key4(1..2){
-				#$coordinate[$key3][$key4] .= $posi{${'gene'.$key3}}{'pos'.$key4}." ";
-				$coordinate[$key3][$key4] .= $gene_info{${'gene'.$key3}}{'pos'.$key4}." ";
-			}
-		}
-	}
+        foreach my $key1(1..2){
+            my (%array2,%max,%min);
+            foreach my $key2(1..2){
+                my @a = split /\s+/, $coordinate[$key1][$key2];
+                $max[$key2] = max @a;
+                $min[$key2] = min @a;
+            }
 
-	foreach my $key1(1..2){
-		my (%array2,%max,%min);
-		foreach my $key2(1..2){
-			my @a = split /\s+/, $coordinate[$key1][$key2];
-			$max[$key2] = max @a;
-			$min[$key2] = min @a;
-		}
-
-		foreach my $key2 (1..2){ 
-			my $max=$max[$key2];
-			my $min=$min[$key2];
-			$array2{$max.'-'.$min} = abs($max-$min+1);
-		}
-		
-		my $final_max = max values %array2;
-		$final_posi = first {$array2{$_} == $final_max} keys %array2; 
-		$block_info{$block_name}[$key1]{range} = "$chr_num[$key1]:$final_posi";
-        #print $block_info{$block_name}[$key1]{range}."\n";
-	}
-}
-print "\n";
-return(\%block_info);
+            foreach my $key2 (1..2){ 
+                my $max=$max[$key2];
+                my $min=$min[$key2];
+                $array2{$max.'-'.$min} = abs($max-$min+1);
+            }
+            
+            my $final_max = max values %array2;
+            $final_posi = first {$array2{$_} == $final_max} keys %array2; 
+            $block_info{$block_name}[$key1]{range} = "$chr_num[$key1]:$final_posi";
+            #print $block_info{$block_name}[$key1]{range}."\n";
+        }
+    }
+    print "\n";
+    return(\%block_info);
 }
 
 
@@ -525,21 +543,20 @@ sub generate_detailed_block
         system "echo -ne '.'" if exists $block_printing_countersh_href->{$block_printing_counter};
         $hash2_ref = $block_info{$block_name};
         for my $key1 (1..2){
-            ($range = $block_info{$block_name}[$key1]{range}) =~ /^\D*(\d+)\:([^\-]+)\-([^\-]+)/;
+            #($range = $block_info{$block_name}[$key1]{range}) =~ /^\D*(\d+)\:([^\-]+)\-([^\-]+)/;
+            ($range = $block_info{$block_name}[$key1]{range}) =~ /^([^:]+)\:([^\-]+)\-([^\-]+)/;
             $chr = $1;
             @range = do {$2<$3 ? ($2,$3) : ($3,$2)};
             for my $coordinate ($range[0]..$range[1]){
                 if ($coordinate % $step == 0){
                     #$block_detailed[$chr]{$coordinate} = $block_name.":$key1";
-                    $block_detailed[$chr]{$coordinate}{$block_name.":$key1"}=1;
+                    $block_detailed{$chr}{$coordinate}{$block_name.":$key1"}=1;
                 }
             }
-            #print $chr."\t".$range[0]."\t".$range[1]."\n";
-            #print "$block_name\n";
         }
     }
     print "\n";
-    return (\@block_detailed);	
+    return (\%block_detailed);	
 }
 
 
@@ -551,9 +568,7 @@ sub get_paired_WGD_block{
 		get_paired_WGD_block__cycle1: for my $block_locus_name (keys %$hashref1){
 			my $symbol_combined = $hashref1->{$block_locus_name};
 			my ($symbol1, $symbol2) = split /\-/, $symbol_combined;
-			for (($symbol1,$symbol2)){
-				next get_paired_WGD_block__cycle1 if exists $paired_WGD_block_rela{$_};
-			}
+			#for (($symbol1,$symbol2)){next get_paired_WGD_block__cycle1 if exists $paired_WGD_block_rela{$_};}
 			#$paired_WGD_block_rela{$symbol1} = $symbol2;
 			#$paired_WGD_block_rela{$symbol2} = $symbol1;
 			$paired_WGD_block_rela{$symbol1}{$symbol2} = '';
@@ -607,8 +622,9 @@ sub read_linc_gff_file{
 	while(<$IN>){
 		chomp;
 		my ($chr,$name,$start,$end) = split /\t/;
-		my ($chr_num) = $chr =~ /(\d+)/;
-        $linc_info{$name}{'chr'} = $chr_num;
+        $linc_info{$name}{'chr'} = $chr;
+		#my ($chr_num) = $chr =~ /(\d+)/;
+        #$linc_info{$name}{'chr'} = $chr_cum;
 		$linc_info{$name}{posi} = $start.'-'.$end;
 		$linc_info{$name}{pos1} = $start; # pos1 is not posi 
 	}
@@ -627,15 +643,15 @@ sub read_genome_gff_file{
 		chomp;
 		my ($chr, $type, $pos1, $pos2, $strand, $length0, $length, $ref2);
 		($chr, $type, $pos1, $pos2, $strand, $attributes) = (split /\t/)[0,2,3,4,6,8];
-        ($chr) = $chr =~ /(\d+)/; # e.g., chr5 -> 5
+        #($chr) = $chr =~ /(\d+)/; # e.g., chr5 -> 5
 		next if $type ne $type0;
 		
 		#($gene) = $attributes =~ /^ID\=([.A-Za-z0-9]+)/;
-		if ($attributes =~ /Name\=([^;]+)/){
+		if ($attributes =~ /ID\=([^;]+)/){
             $ref2 = $posi{$1};
             $gene = $1;
         }
-        elsif ($attributes =~ /ID\=([^;]+)/){
+        elsif ($attributes =~ /Name\=([^;]+)/){
             $ref2 = $posi{$1};
             $gene = $1;
         }
