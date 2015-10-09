@@ -45,7 +45,8 @@ my ($blast_chr_bias_href, $blast_chr_Q_bias, $blast_chr_S_bias, $outdir, $force,
 $numOfGenesInBlockCutoff = 0;
 
 $regular_type = 'Bowers';
-$linc_blast_output = "../blast/liu_linc_blast_output";
+#$linc_blast_output = "../blast/liu_linc_blast_output";
+$linc_blast_output = undef;
 $blast_chr_Q_bias=undef;
 $blast_chr_S_bias=undef;
 
@@ -96,13 +97,15 @@ foreach (@necessary_params){
 }
 
 #$linc_seq_file = "/home/sswang/project/linc/seq/liu_linc.fa";
-$block_detailed_step = 100;
+$block_detailed_step = 50;
 #$A01_fast='A15';
 undef $filter_S;
 undef $adhore;
 
 $blast_chr_bias_href->{'Q'} = $blast_chr_Q_bias if $blast_chr_Q_bias;
 $blast_chr_bias_href->{'S'} = $blast_chr_S_bias if $blast_chr_S_bias;
+
+die "linc_blast_output needs to be given! Exiting ......" if not $linc_blast_output;
 
 if (-e $outdir){
     if ($force){
@@ -278,7 +281,7 @@ foreach my $block_name (sort keys %block_info){
     &output_adhore("adhore_pair", $arrayref1, $arrayref2) if defined ($adhore);
 
     foreach my $order1 (0..$#$arrayref1){
-        my (@gene1,$gene1_arrayref,$indexs_gene1_aref);
+        my (@gene1, $gene1_arrayref, $indexs_gene1_aref);
         my ($count, $seq_name, $extend_gene_num_of_max);
         $seq_name = $arrayref1->[$order1];
         $extend_gene_num_of_max = int(2*$extend_gene_width) if not $extend_gene_num_of_max;
@@ -304,6 +307,7 @@ foreach my $block_name (sort keys %block_info){
                     0, $#$arrayref2,
                     $arrayref2, 'hash' );
                 my %gene2 = %$gene2_hashref;
+                my $count_cutoff = int((scalar(keys %gene2) + scalar(@gene1))/4);
                 for my $gene (@gene1){
                     foreach my $paralog (keys %{$paired_WGD_block_rela{$gene}}){
                         my $WGD_paired_gene = $paralog;
@@ -457,7 +461,6 @@ sub generate_block_range
 
     my $num_of_keys_of_hash_block = scalar keys %block;
     print "Generating block range\n";
-    #&print_dot($num_of_keys_of_hash_block);
 
     my $block_printing_countersh_href = &generate_printing_countersh($num_of_keys_of_hash_block);
 
@@ -471,7 +474,7 @@ sub generate_block_range
         my $hash2_ref = $block{$block_name};
         foreach $key2 (sort keys %$hash2_ref){
             my $res = $hash2_ref->{$key2};
-            ($gene1,$gene2) = split /[-]/,$res;
+            ($gene1,$gene2) = split /[!]/,$res;
 
             # e.g., Chr1 or chr1 -> 1
             $chr_num_tmp[1] = $gene_info_href->{$gene1}{'chr'} if exists $gene_info_href->{$gene1};
@@ -567,7 +570,7 @@ sub get_paired_WGD_block{
 		my $hashref1 = $block_ref->{$block_name};
 		get_paired_WGD_block__cycle1: for my $block_locus_name (keys %$hashref1){
 			my $symbol_combined = $hashref1->{$block_locus_name};
-			my ($symbol1, $symbol2) = split /\-/, $symbol_combined;
+			my ($symbol1, $symbol2) = split /\!/, $symbol_combined;
 			#for (($symbol1,$symbol2)){next get_paired_WGD_block__cycle1 if exists $paired_WGD_block_rela{$_};}
 			#$paired_WGD_block_rela{$symbol1} = $symbol2;
 			#$paired_WGD_block_rela{$symbol2} = $symbol1;
@@ -657,16 +660,11 @@ sub read_genome_gff_file{
         }
         $gene = uc($gene);
 
-		#($gene) = $attributes =~ /^ID\=([^;]+)/;
-		#$ref2 = $posi{$gene};
-
 		$length = abs($pos1-$pos2+1);
 		if (defined $ref2){
 			$length0 = abs($ref2->{pos1} - $ref2->{pos2} + 1);
 			next if $length0 > $length;
 		}
-		#$posi{$gene}{pos1} = $pos1;
-		#$posi{$gene}{pos2} = $pos2;
 		$gene_info{$gene}{posi} = $pos1.'-'.$pos2;
 		$gene_info{$gene}{pos1} = $pos1;
 		$gene_info{$gene}{pos2} = $pos2;
@@ -684,7 +682,7 @@ sub read_linc_blast_output
     $identity_threshold= 80 if not defined $identity_threshold;
     $aln_length_threshold= 40 if not defined $aln_length_threshold;
 
-	open (my $IN, '<', $blast_output) or die "blast_output file cannot be opened";
+	open (my $IN, '<', $blast_output) or warn "blast_output file cannot be opened";
 	while(<$IN>){
 		chomp;
 		my ($seq1, $seq2, $identity, $aln_length, $e_value) = (split /\t/)[0,1,2,3,10];
